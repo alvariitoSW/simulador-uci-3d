@@ -1,11 +1,15 @@
 extends CanvasLayer
 class_name GameHUD
 ## Interfaz construida enteramente por codigo (sin escena .tscn propia): puntuacion,
-## arma/antibiotico equipado, barra de estabilidad del paciente y pantalla de resultados.
+## arma/antibiotico equipado, municion, barra de estabilidad del paciente, mira
+## (cadera/optica) y pantalla de resultados.
 
 var _score_label: Label
 var _weapon_label: Label
+var _ammo_label: Label
+var _reload_label: Label
 var _health_bar: ProgressBar
+var _crosshair: Label
 var _results_panel: Control
 
 
@@ -40,6 +44,10 @@ func _build_hud() -> void:
 	_weapon_label.add_theme_font_size_override("font_size", 22)
 	row.add_child(_weapon_label)
 
+	_ammo_label = Label.new()
+	_ammo_label.add_theme_font_size_override("font_size", 22)
+	row.add_child(_ammo_label)
+
 	var health_box := VBoxContainer.new()
 	var health_title := Label.new()
 	health_title.text = "Estabilidad del paciente"
@@ -52,14 +60,23 @@ func _build_hud() -> void:
 	health_box.add_child(_health_bar)
 	row.add_child(health_box)
 
-	var crosshair := Label.new()
-	crosshair.text = "+"
-	crosshair.add_theme_font_size_override("font_size", 32)
-	crosshair.set_anchors_preset(Control.PRESET_CENTER)
-	add_child(crosshair)
+	_crosshair = Label.new()
+	_crosshair.text = "+"
+	_crosshair.add_theme_font_size_override("font_size", 32)
+	_crosshair.set_anchors_preset(Control.PRESET_CENTER)
+	add_child(_crosshair)
+
+	_reload_label = Label.new()
+	_reload_label.text = "RECARGANDO..."
+	_reload_label.add_theme_font_size_override("font_size", 24)
+	_reload_label.set_anchors_preset(Control.PRESET_CENTER)
+	_reload_label.position += Vector2(0, 50)
+	_reload_label.visible = false
+	add_child(_reload_label)
 
 	var help := Label.new()
-	help.text = "1/2/3: elegir antibiotico  |  Click: disparar  |  ESC: liberar el raton"
+	help.text = ("1/2/3: elegir antibiotico  |  Click izq: disparar  |  " +
+		"Click der (mantener): apuntar con optica  |  R: recargar  |  ESC: liberar el raton")
 	help.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
 	help.position.y -= 40
 	help.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -77,6 +94,20 @@ func _on_weapon_changed(weapon_id: String) -> void:
 
 func _on_health_changed(new_health: float) -> void:
 	_health_bar.value = new_health
+
+
+func update_ammo(current: int, max_ammo: int, reloading: bool) -> void:
+	_ammo_label.text = "Municion: %d / %d" % [current, max_ammo]
+	_reload_label.visible = reloading
+
+
+func set_aiming(is_aiming: bool) -> void:
+	if is_aiming:
+		_crosshair.text = "."
+		_crosshair.add_theme_font_size_override("font_size", 16)
+	else:
+		_crosshair.text = "+"
+		_crosshair.add_theme_font_size_override("font_size", 32)
 
 
 func show_results(won: bool) -> void:

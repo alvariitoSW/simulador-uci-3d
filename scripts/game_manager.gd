@@ -7,6 +7,10 @@ extends Node
 ## SEIMC-SEHH 2020): cada antibiotico solo tiene cobertura fuerte contra ciertas
 ## categorias de microorganismo, igual que en la practica clinica. Acertar la
 ## cobertura = arma potente y precisa; fallarla = arma debil.
+##
+## Cada antibiotico tiene ademas su propia identidad como arma (cargador, cadencia,
+## precision de cadera/mira) para que elegirlo tambien sea una decision de estilo de
+## juego, no solo de cobertura clinica.
 
 signal score_changed(new_score: int)
 signal weapon_changed(weapon_id: String)
@@ -18,16 +22,31 @@ const ANTIBIOTICS := {
 		"label": "Piperacilina-tazobactam",
 		"weapon_name": "Ametralladora estandar",
 		"strong_vs": ["gram_negativo_sensible"],
+		"magazine_size": 25,
+		"reload_time": 1.6,
+		"fire_rate": 0.12,
+		"spread_hip_deg": 4.0,
+		"spread_ads_deg": 1.0,
 	},
 	"vancomicina": {
 		"label": "Vancomicina",
-		"weapon_name": "Escopeta de precision",
+		"weapon_name": "Rifle de precision",
 		"strong_vs": ["gram_positivo"],
+		"magazine_size": 6,
+		"reload_time": 2.0,
+		"fire_rate": 0.5,
+		"spread_hip_deg": 2.0,
+		"spread_ads_deg": 0.3,
 	},
 	"meropenem": {
 		"label": "Meropenem (carbapenem)",
 		"weapon_name": "Lanzagranadas de amplio espectro",
 		"strong_vs": ["gram_negativo_mdr", "gram_negativo_sensible"],
+		"magazine_size": 4,
+		"reload_time": 2.6,
+		"fire_rate": 0.9,
+		"spread_hip_deg": 7.0,
+		"spread_ads_deg": 2.0,
 	},
 }
 
@@ -48,6 +67,7 @@ const PATHOGENS := {
 
 const WEAK_HIT_DAMAGE := 8.0
 const PATIENT_DAMAGE_PER_WRONG_KILL := 6.0
+const PATIENT_DAMAGE_PER_ESCAPE := 12.0
 
 var score: int = 0
 var current_weapon: String = "pip_tazo"
