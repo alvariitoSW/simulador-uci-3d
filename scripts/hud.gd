@@ -28,25 +28,27 @@ func _build_hud() -> void:
 	var margin := MarginContainer.new()
 	margin.set_anchors_preset(Control.PRESET_TOP_WIDE)
 	margin.add_theme_constant_override("margin_left", 24)
-	margin.add_theme_constant_override("margin_top", 20)
+	margin.add_theme_constant_override("margin_top", 16)
 	margin.add_theme_constant_override("margin_right", 24)
 	add_child(margin)
 
-	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 40)
-	margin.add_child(row)
+	# Dos filas en vez de una sola, para que quepan en pantallas estrechas sin que
+	# la barra de estabilidad se salga por el borde derecho.
+	var rows := VBoxContainer.new()
+	rows.add_theme_constant_override("separation", 6)
+	margin.add_child(rows)
+
+	var top_row := HBoxContainer.new()
+	top_row.add_theme_constant_override("separation", 32)
+	rows.add_child(top_row)
 
 	_score_label = Label.new()
-	_score_label.add_theme_font_size_override("font_size", 22)
-	row.add_child(_score_label)
-
-	_weapon_label = Label.new()
-	_weapon_label.add_theme_font_size_override("font_size", 22)
-	row.add_child(_weapon_label)
+	_score_label.add_theme_font_size_override("font_size", 20)
+	top_row.add_child(_score_label)
 
 	_ammo_label = Label.new()
-	_ammo_label.add_theme_font_size_override("font_size", 22)
-	row.add_child(_ammo_label)
+	_ammo_label.add_theme_font_size_override("font_size", 20)
+	top_row.add_child(_ammo_label)
 
 	var health_box := VBoxContainer.new()
 	var health_title := Label.new()
@@ -55,10 +57,14 @@ func _build_hud() -> void:
 	_health_bar = ProgressBar.new()
 	_health_bar.min_value = 0
 	_health_bar.max_value = 100
-	_health_bar.custom_minimum_size = Vector2(220, 18)
+	_health_bar.custom_minimum_size = Vector2(200, 16)
 	_health_bar.show_percentage = false
 	health_box.add_child(_health_bar)
-	row.add_child(health_box)
+	top_row.add_child(health_box)
+
+	_weapon_label = Label.new()
+	_weapon_label.add_theme_font_size_override("font_size", 18)
+	rows.add_child(_weapon_label)
 
 	_crosshair = Label.new()
 	_crosshair.text = "+"

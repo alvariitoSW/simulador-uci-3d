@@ -145,26 +145,26 @@ func _build_cockpit() -> void:
 	var interior_mat := StandardMaterial3D.new()
 	interior_mat.albedo_color = Color(0.1, 0.11, 0.09)
 
-	var left_pillar := _make_box(Vector3(0.18, 2.6, 0.18), frame_mat)
-	left_pillar.position = Vector3(-1.7, 0.2, -0.4)
+	var left_pillar := _make_box(Vector3(0.22, 3.2, 0.22), frame_mat)
+	left_pillar.position = Vector3(-2.1, 0.2, -2.6)
 	rig.add_child(left_pillar)
 
-	var right_pillar := _make_box(Vector3(0.18, 2.6, 0.18), frame_mat)
-	right_pillar.position = Vector3(1.7, 0.2, -0.4)
+	var right_pillar := _make_box(Vector3(0.22, 3.2, 0.22), frame_mat)
+	right_pillar.position = Vector3(2.1, 0.2, -2.6)
 	rig.add_child(right_pillar)
 
-	var top_bar := _make_box(Vector3(3.6, 0.18, 0.18), frame_mat)
-	top_bar.position = Vector3(0, 1.5, -0.4)
+	var top_bar := _make_box(Vector3(4.4, 0.22, 0.22), frame_mat)
+	top_bar.position = Vector3(0, 1.35, -2.6)
 	rig.add_child(top_bar)
 
 	# Peto/salpicadero inferior, como si estuvieras asomado por la puerta lateral.
-	var lower_panel := _make_box(Vector3(3.6, 0.9, 0.3), interior_mat)
-	lower_panel.position = Vector3(0, -1.35, -0.3)
+	var lower_panel := _make_box(Vector3(4.4, 1.3, 0.5), interior_mat)
+	lower_panel.position = Vector3(0, -1.35, -2.4)
 	rig.add_child(lower_panel)
 
 	# Soporte del arma de puerta (decorativo).
-	var mount := _make_box(Vector3(0.15, 0.5, 0.15), frame_mat)
-	mount.position = Vector3(0.5, -0.75, -0.5)
+	var mount := _make_box(Vector3(0.18, 0.6, 0.18), frame_mat)
+	mount.position = Vector3(0.7, -0.75, -2.5)
 	rig.add_child(mount)
 
 
@@ -180,7 +180,7 @@ func _build_weapon_view(weapon_id: String) -> void:
 	_weapon_view = rig
 
 	var body_mat := StandardMaterial3D.new()
-	body_mat.albedo_color = Color(0.08, 0.08, 0.08)
+	body_mat.albedo_color = Color(0.32, 0.34, 0.27)
 
 	match weapon_id:
 		"vancomicina":
