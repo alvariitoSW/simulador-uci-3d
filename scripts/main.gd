@@ -6,18 +6,23 @@ extends Node3D
 ## Todo el arbol de nodos se construye por codigo.
 
 const YAW_LIMIT_DEG := 70.0
-const PITCH_MIN_DEG := -35.0
-const PITCH_MAX_DEG := 18.0
+const PITCH_MIN_DEG := -55.0
+const PITCH_MAX_DEG := 50.0
 const HIP_FOV := 70.0
 const ADS_FOV := 35.0
 const SPAWN_INTERVAL := 1.8
 const WAVE_PAUSE_S := 3.0
-const HELI_BASE_POS := Vector3(0, 2.2, 6)
+const HELI_BASE_POS := Vector3(0, 14.0, 6)
+const WORLD_SCROLL_SPEED := 3.0
+const TREE_FIELD_DEPTH := 120.0
+const TREE_RECYCLE_Z := 20.0
 
 var _spawn_timer: float = 0.0
 var _wave_spawned_count: int = 0
 var _hud: GameHUD
 var _heli_rig: Node3D
+var _rotor_hub: Node3D
+var _tail_rotor_hub: Node3D
 var _camera: Camera3D
 var _weapon_view: Node3D
 var _yaw: float = 0.0
@@ -28,6 +33,7 @@ var _is_reloading: bool = false
 var _fire_cooldown: float = 0.0
 var _flight_time: float = 0.0
 var _rng := RandomNumberGenerator.new()
+var _scroll_nodes: Array = []
 
 
 func _ready() -> void:
@@ -68,7 +74,7 @@ func _build_environment() -> void:
 	var ground := StaticBody3D.new()
 	var ground_mesh := MeshInstance3D.new()
 	var plane := PlaneMesh.new()
-	plane.size = Vector2(200, 200)
+	plane.size = Vector2(300, 300)
 	ground_mesh.mesh = plane
 	var ground_mat := StandardMaterial3D.new()
 	ground_mat.albedo_color = Color(0.22, 0.38, 0.2)
@@ -76,19 +82,20 @@ func _build_environment() -> void:
 	ground.add_child(ground_mesh)
 	var ground_collision := CollisionShape3D.new()
 	var ground_shape := BoxShape3D.new()
-	ground_shape.size = Vector3(200, 0.1, 200)
+	ground_shape.size = Vector3(300, 0.1, 300)
 	ground_collision.position = Vector3(0, -0.05, 0)
 	ground_collision.shape = ground_shape
 	ground.add_child(ground_collision)
 	add_child(ground)
 
 	_scatter_trees()
+	_scatter_ground_patches()
 
 
 func _scatter_trees() -> void:
 	var tree_rng := RandomNumberGenerator.new()
 	tree_rng.seed = 1234
-	for i in range(40):
+	for i in range(70):
 		var trunk := MeshInstance3D.new()
 		var trunk_mesh := CylinderMesh.new()
 		trunk_mesh.top_radius = 0.15
@@ -113,9 +120,31 @@ func _scatter_trees() -> void:
 		tree.add_child(trunk)
 		tree.add_child(canopy)
 		var x := tree_rng.randf_range(-45, 45)
-		var z := tree_rng.randf_range(-70, -15)
+		var z := tree_rng.randf_range(-100, 15)
 		tree.position = Vector3(x, 0, z)
 		add_child(tree)
+		_scroll_nodes.append(tree)
+
+
+func _scatter_ground_patches() -> void:
+	# Parches de color (campos/claros) en el suelo: sin ellos, el plano verde liso no
+	# deja notar que el paisaje se desplaza por debajo mientras vuelas.
+	var patch_rng := RandomNumberGenerator.new()
+	patch_rng.seed = 777
+	var colors := [Color(0.3, 0.42, 0.22), Color(0.26, 0.5, 0.28), Color(0.35, 0.4, 0.2)]
+	for i in range(24):
+		var patch := MeshInstance3D.new()
+		var mesh := BoxMesh.new()
+		mesh.size = Vector3(patch_rng.randf_range(6, 14), 0.05, patch_rng.randf_range(6, 14))
+		patch.mesh = mesh
+		var mat := StandardMaterial3D.new()
+		mat.albedo_color = colors[i % colors.size()]
+		patch.material_override = mat
+		var x := patch_rng.randf_range(-60, 60)
+		var z := patch_rng.randf_range(-100, 15)
+		patch.position = Vector3(x, 0.03, z)
+		add_child(patch)
+		_scroll_nodes.append(patch)
 
 
 func _make_box(size: Vector3, mat: StandardMaterial3D) -> MeshInstance3D:
@@ -139,18 +168,29 @@ func _build_heli_rig() -> void:
 	_heli_rig.add_child(_camera)
 	_camera.current = true
 
-	_build_cockpit()
+	_build_helicopter_shell()
 
 
-func _build_cockpit() -> void:
-	# Marco de la puerta lateral de un helicoptero de transporte, dentro del rig del
-	# helicoptero (se balancea con el vuelo, pero no gira al apuntar).
+func _dark_mat() -> StandardMaterial3D:
+	var m := StandardMaterial3D.new()
+	m.albedo_color = Color(0.08, 0.08, 0.08)
+	return m
+
+
+func _build_helicopter_shell() -> void:
+	# Helicoptero de transporte completo: cabina cerrada (paredes, techo, suelo),
+	# puerta lateral por la que se dispara, rotor principal y de cola, y patines.
+	# Todo colgado de _heli_rig, para que se balancee junto con el vuelo.
 	var frame_mat := StandardMaterial3D.new()
 	frame_mat.albedo_color = Color(0.18, 0.2, 0.14)
 
 	var interior_mat := StandardMaterial3D.new()
 	interior_mat.albedo_color = Color(0.1, 0.11, 0.09)
 
+	var wall_mat := StandardMaterial3D.new()
+	wall_mat.albedo_color = Color(0.24, 0.27, 0.19)
+
+	# --- Puerta lateral (el hueco por el que se dispara) ---
 	var left_pillar := _make_box(Vector3(0.22, 3.2, 0.22), frame_mat)
 	left_pillar.position = Vector3(-2.1, 0.2, -2.6)
 	_heli_rig.add_child(left_pillar)
@@ -163,15 +203,93 @@ func _build_cockpit() -> void:
 	top_bar.position = Vector3(0, 1.35, -2.6)
 	_heli_rig.add_child(top_bar)
 
-	# Peto/salpicadero inferior, como si estuvieras asomado por la puerta lateral.
 	var lower_panel := _make_box(Vector3(4.4, 1.3, 0.5), interior_mat)
 	lower_panel.position = Vector3(0, -1.35, -2.4)
 	_heli_rig.add_child(lower_panel)
 
-	# Soporte del arma de puerta (decorativo).
 	var mount := _make_box(Vector3(0.18, 0.6, 0.18), frame_mat)
 	mount.position = Vector3(0.7, -0.75, -2.5)
 	_heli_rig.add_child(mount)
+
+	# --- Cabina cerrada detras de la puerta: paredes, suelo, techo, pared trasera ---
+	var left_wall := _make_box(Vector3(0.15, 3.0, 4.6), wall_mat)
+	left_wall.position = Vector3(-2.1, 0.2, 0.1)
+	_heli_rig.add_child(left_wall)
+
+	var right_wall := _make_box(Vector3(0.15, 3.0, 4.6), wall_mat)
+	right_wall.position = Vector3(2.1, 0.2, 0.1)
+	_heli_rig.add_child(right_wall)
+
+	var rear_wall := _make_box(Vector3(4.4, 3.0, 0.2), wall_mat)
+	rear_wall.position = Vector3(0, 0.2, 2.3)
+	_heli_rig.add_child(rear_wall)
+
+	var floor_panel := _make_box(Vector3(4.4, 0.15, 5.0), interior_mat)
+	floor_panel.position = Vector3(0, -1.5, -0.2)
+	_heli_rig.add_child(floor_panel)
+
+	# Techo partido en dos, con un hueco central para el mastil: al mirar hacia
+	# arriba se ve girar el rotor principal por encima de la cabina.
+	var ceiling_left := _make_box(Vector3(1.4, 0.15, 5.0), wall_mat)
+	ceiling_left.position = Vector3(-1.5, 1.8, -0.2)
+	_heli_rig.add_child(ceiling_left)
+
+	var ceiling_right := _make_box(Vector3(1.4, 0.15, 5.0), wall_mat)
+	ceiling_right.position = Vector3(1.5, 1.8, -0.2)
+	_heli_rig.add_child(ceiling_right)
+
+	_build_rotor()
+	_build_tail(wall_mat)
+	_build_skids(frame_mat)
+
+
+func _build_rotor() -> void:
+	_rotor_hub = Node3D.new()
+	_rotor_hub.position = Vector3(0, 2.4, -0.2)
+	_heli_rig.add_child(_rotor_hub)
+
+	var mast := _make_box(Vector3(0.12, 0.7, 0.12), _dark_mat())
+	mast.position = Vector3(0, -0.35, 0)
+	_rotor_hub.add_child(mast)
+
+	for i in range(2):
+		var blade := _make_box(Vector3(6.5, 0.06, 0.45), _dark_mat())
+		blade.rotation_degrees = Vector3(0, i * 90.0, 0)
+		_rotor_hub.add_child(blade)
+
+
+func _build_tail(wall_mat: StandardMaterial3D) -> void:
+	var boom := MeshInstance3D.new()
+	var boom_mesh := CylinderMesh.new()
+	boom_mesh.top_radius = 0.3
+	boom_mesh.bottom_radius = 0.45
+	boom_mesh.height = 4.2
+	boom.mesh = boom_mesh
+	boom.material_override = wall_mat
+	boom.rotation_degrees = Vector3(90, 0, 0)
+	boom.position = Vector3(0, 0.3, 4.4)
+	_heli_rig.add_child(boom)
+
+	_tail_rotor_hub = Node3D.new()
+	_tail_rotor_hub.position = Vector3(0.4, 0.4, 6.4)
+	_heli_rig.add_child(_tail_rotor_hub)
+	for i in range(2):
+		var blade := _make_box(Vector3(1.3, 0.04, 0.22), _dark_mat())
+		blade.rotation_degrees = Vector3(0, i * 90.0, 0)
+		_tail_rotor_hub.add_child(blade)
+
+
+func _build_skids(mat: StandardMaterial3D) -> void:
+	for side in [-1.0, 1.0]:
+		var skid := _make_box(Vector3(0.12, 0.12, 5.2), mat)
+		skid.position = Vector3(side * 1.7, -2.4, -0.2)
+		_heli_rig.add_child(skid)
+		var strut_a := _make_box(Vector3(0.1, 0.9, 0.1), mat)
+		strut_a.position = Vector3(side * 1.7, -1.9, -1.9)
+		_heli_rig.add_child(strut_a)
+		var strut_b := _make_box(Vector3(0.1, 0.9, 0.1), mat)
+		strut_b.position = Vector3(side * 1.7, -1.9, 1.5)
+		_heli_rig.add_child(strut_b)
 
 
 func _build_weapon_view(weapon_id: String) -> void:
@@ -254,6 +372,8 @@ func _on_wave_cleared(current: int) -> void:
 
 func _process(delta: float) -> void:
 	_update_flight_bob(delta)
+	_update_rotors(delta)
+	_scroll_world(delta)
 
 	_spawn_timer -= delta
 	if _spawn_timer <= 0.0 and _wave_spawned_count < GameManager.targets_total_this_wave:
@@ -268,6 +388,22 @@ func _process(delta: float) -> void:
 	_camera.fov = lerp(_camera.fov, target_fov, delta * 8.0)
 
 	_update_radar()
+
+
+func _update_rotors(delta: float) -> void:
+	_rotor_hub.rotate_object_local(Vector3.UP, delta * 14.0)
+	_tail_rotor_hub.rotate_object_local(Vector3.FORWARD, delta * 22.0)
+
+
+## Mueve el paisaje (arboles, parches de suelo) hacia la camara y lo recicla al
+## pasar por detras, dando la sensacion de que el helicoptero vuela hacia delante
+## sin tener que desplazar de verdad al propio helicoptero (y asi toda la logica
+## de aparicion/alcance de objetivos sigue siendo relativa a un punto fijo).
+func _scroll_world(delta: float) -> void:
+	for node in _scroll_nodes:
+		node.position.z += WORLD_SCROLL_SPEED * delta
+		if node.position.z > TREE_RECYCLE_Z:
+			node.position.z -= TREE_FIELD_DEPTH
 
 
 ## Balanceo continuo simulando que el helicoptero esta en vuelo: una ligera subida y
@@ -305,9 +441,10 @@ func _spawn_target() -> void:
 
 	var target := PathogenTarget.new()
 	add_child(target)
-	var x := _rng.randf_range(-8, 8)
+	var x := _rng.randf_range(-10, 10)
+	var y := _rng.randf_range(HELI_BASE_POS.y - 4.0, HELI_BASE_POS.y + 3.0)
 	var z := _rng.randf_range(-40, -20)
-	target.setup(pathogen_id, Vector3(x, 1.5, z))
+	target.setup(pathogen_id, Vector3(x, y, z))
 	target.killed.connect(_on_target_killed)
 	target.escaped.connect(_on_target_escaped)
 
