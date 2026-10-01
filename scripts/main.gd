@@ -1,21 +1,23 @@
 extends Node3D
-## Escena principal del prototipo: construye el entorno low-poly, la cabina del
-## helicoptero (marco de puerta visible), la camara tipo torreta con arma en pantalla,
-## genera oleadas de microorganismos y resuelve el disparo (raycast con dispersion)
-## contra el antibiotico equipado. Todo el arbol de nodos se construye por codigo.
-
-@export var spawn_interval: float = 2.2
-@export var wave_size: int = 10
+## Escena principal del prototipo: construye el entorno low-poly, el helicoptero
+## (cabina + arma en pantalla) con balanceo de vuelo continuo, genera oleadas de
+## microorganismos con siluetas distintas por categoria, y resuelve el disparo
+## (raycast con dispersion, trazadora y fogonazo) contra el antibiotico equipado.
+## Todo el arbol de nodos se construye por codigo.
 
 const YAW_LIMIT_DEG := 70.0
 const PITCH_MIN_DEG := -35.0
 const PITCH_MAX_DEG := 18.0
 const HIP_FOV := 70.0
 const ADS_FOV := 35.0
+const SPAWN_INTERVAL := 1.8
+const WAVE_PAUSE_S := 3.0
+const HELI_BASE_POS := Vector3(0, 2.2, 6)
 
 var _spawn_timer: float = 0.0
-var _spawned_count: int = 0
+var _wave_spawned_count: int = 0
 var _hud: GameHUD
+var _heli_rig: Node3D
 var _camera: Camera3D
 var _weapon_view: Node3D
 var _yaw: float = 0.0
@@ -24,25 +26,27 @@ var _is_aiming: bool = false
 var _current_ammo: int = 1
 var _is_reloading: bool = false
 var _fire_cooldown: float = 0.0
+var _flight_time: float = 0.0
 var _rng := RandomNumberGenerator.new()
 
 
 func _ready() -> void:
 	GameManager.reset_run()
-	GameManager.targets_total = wave_size
 	GameManager.game_over.connect(_on_game_over)
 	GameManager.weapon_changed.connect(_on_weapon_changed)
+	GameManager.wave_started.connect(_on_wave_started)
+	GameManager.wave_cleared.connect(_on_wave_cleared)
 
 	_rng.randomize()
 	_build_environment()
-	_build_camera_rig()
-	_build_cockpit()
+	_build_heli_rig()
 
 	_hud = GameHUD.new()
 	add_child(_hud)
 	_on_weapon_changed(GameManager.current_weapon)
 
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+	GameManager.start_next_wave()
 
 
 func _build_environment() -> void:
@@ -114,14 +118,6 @@ func _scatter_trees() -> void:
 		add_child(tree)
 
 
-func _build_camera_rig() -> void:
-	_camera = Camera3D.new()
-	_camera.position = Vector3(0, 2.2, 6)
-	_camera.fov = HIP_FOV
-	add_child(_camera)
-	_camera.current = true
-
-
 func _make_box(size: Vector3, mat: StandardMaterial3D) -> MeshInstance3D:
 	var mesh_instance := MeshInstance3D.new()
 	var box := BoxMesh.new()
@@ -131,14 +127,24 @@ func _make_box(size: Vector3, mat: StandardMaterial3D) -> MeshInstance3D:
 	return mesh_instance
 
 
-func _build_cockpit() -> void:
-	# Marco de la puerta lateral de un helicoptero de transporte, fijo en el espacio
-	# del mundo (no rota con la camara) para que se sienta como parte del fuselaje
-	# mientras giras la vista dentro de el, igual que en un helicoptero real.
-	var rig := Node3D.new()
-	rig.position = Vector3(0, 2.2, 6)
-	add_child(rig)
+## El helicoptero (cabina + camara) es un unico rig que se balancea con el vuelo;
+## la camara solo gira dentro de el para apuntar, como un artillero real.
+func _build_heli_rig() -> void:
+	_heli_rig = Node3D.new()
+	_heli_rig.position = HELI_BASE_POS
+	add_child(_heli_rig)
 
+	_camera = Camera3D.new()
+	_camera.fov = HIP_FOV
+	_heli_rig.add_child(_camera)
+	_camera.current = true
+
+	_build_cockpit()
+
+
+func _build_cockpit() -> void:
+	# Marco de la puerta lateral de un helicoptero de transporte, dentro del rig del
+	# helicoptero (se balancea con el vuelo, pero no gira al apuntar).
 	var frame_mat := StandardMaterial3D.new()
 	frame_mat.albedo_color = Color(0.18, 0.2, 0.14)
 
@@ -147,25 +153,25 @@ func _build_cockpit() -> void:
 
 	var left_pillar := _make_box(Vector3(0.22, 3.2, 0.22), frame_mat)
 	left_pillar.position = Vector3(-2.1, 0.2, -2.6)
-	rig.add_child(left_pillar)
+	_heli_rig.add_child(left_pillar)
 
 	var right_pillar := _make_box(Vector3(0.22, 3.2, 0.22), frame_mat)
 	right_pillar.position = Vector3(2.1, 0.2, -2.6)
-	rig.add_child(right_pillar)
+	_heli_rig.add_child(right_pillar)
 
 	var top_bar := _make_box(Vector3(4.4, 0.22, 0.22), frame_mat)
 	top_bar.position = Vector3(0, 1.35, -2.6)
-	rig.add_child(top_bar)
+	_heli_rig.add_child(top_bar)
 
 	# Peto/salpicadero inferior, como si estuvieras asomado por la puerta lateral.
 	var lower_panel := _make_box(Vector3(4.4, 1.3, 0.5), interior_mat)
 	lower_panel.position = Vector3(0, -1.35, -2.4)
-	rig.add_child(lower_panel)
+	_heli_rig.add_child(lower_panel)
 
 	# Soporte del arma de puerta (decorativo).
 	var mount := _make_box(Vector3(0.18, 0.6, 0.18), frame_mat)
 	mount.position = Vector3(0.7, -0.75, -2.5)
-	rig.add_child(mount)
+	_heli_rig.add_child(mount)
 
 
 func _build_weapon_view(weapon_id: String) -> void:
@@ -180,7 +186,8 @@ func _build_weapon_view(weapon_id: String) -> void:
 	_weapon_view = rig
 
 	var body_mat := StandardMaterial3D.new()
-	body_mat.albedo_color = Color(0.32, 0.34, 0.27)
+	var weapon_color: Color = _current_weapon_data().get("color", Color(0.3, 0.3, 0.3))
+	body_mat.albedo_color = weapon_color.lightened(0.1)
 
 	match weapon_id:
 		"vancomicina":
@@ -189,7 +196,7 @@ func _build_weapon_view(weapon_id: String) -> void:
 			var barrel := _make_box(Vector3(0.07, 0.07, 0.4), body_mat)
 			barrel.position = Vector3(0, 0.0, -0.4)
 			rig.add_child(barrel)
-		"meropenem":
+		"anfotericina_b":
 			var body := _make_box(Vector3(0.16, 0.18, 0.5), body_mat)
 			rig.add_child(body)
 			var barrel := MeshInstance3D.new()
@@ -202,7 +209,13 @@ func _build_weapon_view(weapon_id: String) -> void:
 			barrel.rotation_degrees = Vector3(90, 0, 0)
 			barrel.position = Vector3(0, 0.0, -0.5)
 			rig.add_child(barrel)
-		_: # pip_tazo por defecto
+		"azitromicina":
+			var body := _make_box(Vector3(0.08, 0.1, 0.4), body_mat)
+			rig.add_child(body)
+			var barrel := _make_box(Vector3(0.03, 0.03, 0.3), body_mat)
+			barrel.position = Vector3(0, 0.01, -0.35)
+			rig.add_child(barrel)
+		_: # amoxicilina / ceftriaxona
 			var body := _make_box(Vector3(0.1, 0.12, 0.55), body_mat)
 			rig.add_child(body)
 			var barrel := _make_box(Vector3(0.04, 0.04, 0.45), body_mat)
@@ -222,20 +235,68 @@ func _on_weapon_changed(weapon_id: String) -> void:
 	_build_weapon_view(weapon_id)
 	if _hud:
 		_hud.update_ammo(_current_ammo, data.get("magazine_size", 1), false)
+		_hud.set_active_weapon(weapon_id)
+
+
+func _on_wave_started(current: int, total: int) -> void:
+	_wave_spawned_count = 0
+	_spawn_timer = 0.0
+	if _hud:
+		_hud.show_wave(current, total)
+
+
+func _on_wave_cleared(current: int) -> void:
+	if _hud:
+		_hud.show_wave_cleared(current)
+	await get_tree().create_timer(WAVE_PAUSE_S).timeout
+	GameManager.start_next_wave()
 
 
 func _process(delta: float) -> void:
+	_update_flight_bob(delta)
+
 	_spawn_timer -= delta
-	if _spawn_timer <= 0.0 and _spawned_count < wave_size:
-		_spawn_timer = spawn_interval
+	if _spawn_timer <= 0.0 and _wave_spawned_count < GameManager.targets_total_this_wave:
+		_spawn_timer = SPAWN_INTERVAL
 		_spawn_target()
-		_spawned_count += 1
+		_wave_spawned_count += 1
 
 	if _fire_cooldown > 0.0:
 		_fire_cooldown -= delta
 
 	var target_fov := ADS_FOV if _is_aiming else HIP_FOV
 	_camera.fov = lerp(_camera.fov, target_fov, delta * 8.0)
+
+	_update_radar()
+
+
+## Balanceo continuo simulando que el helicoptero esta en vuelo: una ligera subida y
+## bajada, cabeceo/alabeo y vibracion de motor, independiente de hacia donde apuntes.
+func _update_flight_bob(delta: float) -> void:
+	_flight_time += delta
+	var bob_y := sin(_flight_time * 1.3) * 0.12 + sin(_flight_time * 5.3) * 0.015
+	var sway_x := sin(_flight_time * 0.7) * 0.18
+	_heli_rig.position = HELI_BASE_POS + Vector3(sway_x, bob_y, 0)
+	_heli_rig.rotation = Vector3(
+		sin(_flight_time * 0.9) * deg_to_rad(1.5),
+		sin(_flight_time * 0.5) * deg_to_rad(2.5),
+		sin(_flight_time * 1.1) * deg_to_rad(2.0)
+	)
+
+
+func _update_radar() -> void:
+	if not _hud:
+		return
+	var points: Array = []
+	for child in get_children():
+		if child is PathogenTarget:
+			var rel: Vector3 = child.global_position - _heli_rig.global_position
+			var c := cos(-_yaw)
+			var s := sin(-_yaw)
+			var local_x := rel.x * c - rel.z * s
+			var local_z := rel.x * s + rel.z * c
+			points.append(Vector2(local_x, local_z))
+	_hud.update_radar(points)
 
 
 func _spawn_target() -> void:
@@ -251,9 +312,12 @@ func _spawn_target() -> void:
 	target.escaped.connect(_on_target_escaped)
 
 
-func _on_target_killed(was_correct: bool) -> void:
-	if not was_correct:
+func _on_target_killed(was_correct: bool, death_position: Vector3) -> void:
+	if was_correct:
+		_spawn_explosion(death_position, Color(1.0, 0.7, 0.2))
+	else:
 		GameManager.damage_patient(GameManager.PATIENT_DAMAGE_PER_WRONG_KILL)
+		_spawn_explosion(death_position, Color(0.6, 0.6, 0.6))
 
 
 func _on_target_escaped() -> void:
@@ -270,11 +334,15 @@ func _unhandled_input(event: InputEvent) -> void:
 
 	if event is InputEventKey and event.pressed and not event.echo:
 		if event.keycode == KEY_1:
-			GameManager.set_weapon("pip_tazo")
+			GameManager.set_weapon(GameManager.WEAPON_ORDER[0])
 		elif event.keycode == KEY_2:
-			GameManager.set_weapon("vancomicina")
+			GameManager.set_weapon(GameManager.WEAPON_ORDER[1])
 		elif event.keycode == KEY_3:
-			GameManager.set_weapon("meropenem")
+			GameManager.set_weapon(GameManager.WEAPON_ORDER[2])
+		elif event.keycode == KEY_4:
+			GameManager.set_weapon(GameManager.WEAPON_ORDER[3])
+		elif event.keycode == KEY_5:
+			GameManager.set_weapon(GameManager.WEAPON_ORDER[4])
 		elif event.keycode == KEY_R:
 			_try_reload()
 		elif event.keycode == KEY_ESCAPE:
@@ -327,6 +395,7 @@ func _shoot() -> void:
 	_fire_cooldown = data.get("fire_rate", 0.3)
 	_current_ammo -= 1
 	_hud.update_ammo(_current_ammo, data.get("magazine_size", 1), false)
+	_spawn_muzzle_flash()
 
 	var spread_deg: float = data.get("spread_ads_deg", 1.0) if _is_aiming else data.get("spread_hip_deg", 5.0)
 	var spread_rad := deg_to_rad(spread_deg)
@@ -343,13 +412,88 @@ func _shoot() -> void:
 	query.collide_with_areas = true
 	query.collide_with_bodies = false
 	var result := space_state.intersect_ray(query)
+	var hit_point := to
 	if result and result.has("collider"):
+		hit_point = result.get("position", to)
 		var collider = result["collider"]
 		if collider is PathogenTarget:
 			collider.hit(GameManager.current_weapon)
 
+	_spawn_tracer(_muzzle_world_position(), hit_point)
+
 	if _current_ammo <= 0:
 		_start_reload()
+
+
+func _muzzle_world_position() -> Vector3:
+	if _weapon_view:
+		return _weapon_view.global_transform.origin + (-_weapon_view.global_transform.basis.z) * 0.4
+	return _camera.global_transform.origin
+
+
+func _spawn_muzzle_flash() -> void:
+	var flash := OmniLight3D.new()
+	flash.light_color = Color(1.0, 0.85, 0.5)
+	flash.light_energy = 4.0
+	flash.omni_range = 4.0
+	add_child(flash)
+	flash.global_position = _muzzle_world_position()
+	var timer := get_tree().create_timer(0.06)
+	timer.timeout.connect(flash.queue_free)
+
+
+func _spawn_tracer(from: Vector3, to: Vector3) -> void:
+	var dist := from.distance_to(to)
+	if dist < 0.05:
+		return
+	var direction := (to - from).normalized()
+	var tracer := MeshInstance3D.new()
+	var mesh := CylinderMesh.new()
+	mesh.top_radius = 0.015
+	mesh.bottom_radius = 0.015
+	mesh.height = dist
+	tracer.mesh = mesh
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = Color(1.0, 0.9, 0.5)
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.emission_enabled = true
+	mat.emission = Color(1.0, 0.8, 0.3)
+	mat.emission_energy_multiplier = 2.0
+	tracer.material_override = mat
+	add_child(tracer)
+	var mid := (from + to) / 2.0
+	var basis := Basis.looking_at(direction, Vector3.UP).rotated(Vector3.RIGHT, PI / 2.0)
+	tracer.global_transform = Transform3D(basis, mid)
+	var t := create_tween()
+	t.tween_property(mat, "albedo_color:a", 0.0, 0.12)
+	t.tween_callback(tracer.queue_free)
+
+
+func _spawn_explosion(pos: Vector3, color: Color) -> void:
+	var particles := GPUParticles3D.new()
+	var mat := ParticleProcessMaterial.new()
+	mat.direction = Vector3(0, 1, 0)
+	mat.spread = 180.0
+	mat.initial_velocity_min = 2.0
+	mat.initial_velocity_max = 5.0
+	mat.gravity = Vector3(0, -4.0, 0)
+	mat.scale_min = 0.1
+	mat.scale_max = 0.3
+	mat.color = color
+	particles.process_material = mat
+	var particle_mesh := SphereMesh.new()
+	particle_mesh.radius = 0.08
+	particle_mesh.height = 0.16
+	particles.draw_pass_1 = particle_mesh
+	particles.amount = 20
+	particles.lifetime = 0.6
+	particles.one_shot = true
+	particles.explosiveness = 1.0
+	add_child(particles)
+	particles.global_position = pos
+	particles.emitting = true
+	var timer := get_tree().create_timer(1.0)
+	timer.timeout.connect(particles.queue_free)
 
 
 func _on_game_over(won: bool) -> void:
